@@ -1,0 +1,156 @@
+/**
+ * H题车载平衡滚球运动控制系统首版板级配置。
+ *
+ * 当前配置四个按键、OLED I2C、底盘双电机与编码器、八路循迹，
+ * 以及T3日志、步进电机和K230-A三条独立UART链路。
+ * K230-B只负责独立图传，不占用主控UART。
+ */
+//@cliArgs --device "MSPM0G350X" --package "LQFP-64(PM)" --part "Default"
+//@v2CliArgs --device "MSPM0G3507" --package "LQFP-64(PM)" --product "mspm0_sdk@2.10.00.04"
+
+const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const GPIO = scripting.addModule("/ti/driverlib/GPIO", {}, false);
+const appGPIO = GPIO.addInstance();
+const carGPIO = GPIO.addInstance();
+const PWM = scripting.addModule("/ti/driverlib/PWM", {}, false);
+const motorPWM = PWM.addInstance();
+const QEI = scripting.addModule("/ti/driverlib/QEI", {}, false);
+const leftQEI = QEI.addInstance();
+const TIMER = scripting.addModule("/ti/driverlib/TIMER", {}, false);
+const controlTimer = TIMER.addInstance();
+const I2C = scripting.addModule("/ti/driverlib/I2C", {}, false);
+const oledI2C = I2C.addInstance();
+const UART = scripting.addModule("/ti/driverlib/UART", {}, false);
+const task3LogUART = UART.addInstance();
+const stepperUART = UART.addInstance();
+const k230AUART = UART.addInstance();
+const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
+
+SYSCTL.forceDefaultClkConfig = true;
+SYSCTL.clockTreeEn = true;
+
+// 未确认的外设和引脚保持未配置状态。
+Board.configureUnused = false;
+
+appGPIO.$name = "APP_GPIO";
+appGPIO.associatedPins.create(4);
+
+const keyPins = [
+    ["KEY_SELECT",  "PORTA", "15"],
+    ["KEY_CAPTURE", "PORTB", "27"],
+    ["KEY_CONFIRM", "PORTB", "23"],
+    ["KEY_RESET",   "PORTA", "29"]
+];
+
+for (let i = 0; i < keyPins.length; ++i) {
+    const pin = appGPIO.associatedPins[i];
+    pin.$name = keyPins[i][0];
+    pin.assignedPort = keyPins[i][1];
+    pin.assignedPin = keyPins[i][2];
+    pin.direction = "INPUT";
+    pin.internalResistor = "PULL_UP";
+}
+
+carGPIO.$name = "CAR_GPIO";
+carGPIO.associatedPins.create(14);
+
+const motorPins = [
+    ["MOTOR_AIN1", "PORTB", "17"],
+    ["MOTOR_AIN2", "PORTB", "19"],
+    ["MOTOR_BIN2", "PORTA", "16"],
+    ["MOTOR_BIN1", "PORTB", "24"]
+];
+for (let i = 0; i < motorPins.length; ++i) {
+    const pin = carGPIO.associatedPins[i];
+    pin.$name = motorPins[i][0];
+    pin.assignedPort = motorPins[i][1];
+    pin.assignedPin = motorPins[i][2];
+    pin.initialValue = "SET";
+}
+
+const grayPins = [
+    ["GRAY_X0", "PORTB", "20"],
+    ["GRAY_X1", "PORTA", "24"],
+    ["GRAY_X2", "PORTB", "25"],
+    ["GRAY_X3", "PORTB", "26"],
+    ["GRAY_X4", "PORTB", "10"],
+    ["GRAY_X5", "PORTB", "14"],
+    ["GRAY_X6", "PORTA", "17"],
+    ["GRAY_X7", "PORTA", "7"]
+];
+for (let i = 0; i < grayPins.length; ++i) {
+    const pin = carGPIO.associatedPins[4 + i];
+    pin.$name = grayPins[i][0];
+    pin.assignedPort = grayPins[i][1];
+    pin.assignedPin = grayPins[i][2];
+    pin.direction = "INPUT";
+}
+
+carGPIO.associatedPins[12].$name = "RIGHT_ENCODER_A";
+carGPIO.associatedPins[12].assignedPort = "PORTA";
+carGPIO.associatedPins[12].assignedPin = "14";
+carGPIO.associatedPins[12].direction = "INPUT";
+carGPIO.associatedPins[12].interruptEn = true;
+carGPIO.associatedPins[12].polarity = "RISE_FALL";
+carGPIO.associatedPins[13].$name = "RIGHT_ENCODER_B";
+carGPIO.associatedPins[13].assignedPort = "PORTA";
+carGPIO.associatedPins[13].assignedPin = "25";
+carGPIO.associatedPins[13].direction = "INPUT";
+carGPIO.associatedPins[13].interruptEn = true;
+carGPIO.associatedPins[13].polarity = "RISE_FALL";
+
+motorPWM.$name = "MOTOR_PWM";
+motorPWM.clockPrescale = 1;
+motorPWM.timerCount = 1600;
+motorPWM.peripheral.$assign = "TIMG0";
+motorPWM.peripheral.ccp0Pin.$assign = "PA12";
+motorPWM.peripheral.ccp1Pin.$assign = "PA13";
+motorPWM.PWM_CHANNEL_0.$name = "LEFT_PWM";
+motorPWM.PWM_CHANNEL_0.dutyCycle = 100;
+motorPWM.PWM_CHANNEL_0.ccValue = 0;
+motorPWM.PWM_CHANNEL_1.$name = "RIGHT_PWM";
+motorPWM.PWM_CHANNEL_1.dutyCycle = 100;
+motorPWM.PWM_CHANNEL_1.ccValue = 0;
+
+leftQEI.$name = "LEFT_QEI";
+leftQEI.peripheral.$assign = "TIMG8";
+leftQEI.peripheral.ccp0Pin.$assign = "PA26";
+leftQEI.peripheral.ccp1Pin.$assign = "PA27";
+
+controlTimer.$name = "CONTROL_TIMER";
+controlTimer.profile = "Basic_Periodic";
+controlTimer.timerPeriod = "10 ms";
+controlTimer.peripheral.$assign = "TIMG6";
+
+// T3 CSV日志：UART0，9600 bit/s。PB0接USB转TTL的RX，PB1不接线。
+task3LogUART.$name = "T3_LOG_UART";
+task3LogUART.targetBaudRate = 9600;
+task3LogUART.enableFIFO = false;
+task3LogUART.peripheral.$assign = "UART0";
+task3LogUART.peripheral.txPin.$assign = "PB0";
+task3LogUART.peripheral.rxPin.$assign = "PB1";
+
+// X42S步进电机：UART1。当前只建立硬件链路，协议服务后续实现。
+stepperUART.$name = "STEPPER_UART";
+stepperUART.targetBaudRate = 115200;
+stepperUART.enableFIFO = false;
+stepperUART.enabledInterrupts = ["RX"];
+stepperUART.peripheral.$assign = "UART1";
+stepperUART.peripheral.txPin.$assign = "PA8";
+stepperUART.peripheral.rxPin.$assign = "PA9";
+
+// K230-A：UART3，用于钢球识别数据和后续控制握手。
+k230AUART.$name = "K230_A_UART";
+k230AUART.targetBaudRate = 115200;
+k230AUART.enableFIFO = false;
+k230AUART.enabledInterrupts = ["RX"];
+k230AUART.peripheral.$assign = "UART3";
+k230AUART.peripheral.txPin.$assign = "PB2";
+k230AUART.peripheral.rxPin.$assign = "PB3";
+
+oledI2C.$name = "OLED_I2C";
+oledI2C.basicEnableController = true;
+oledI2C.basicControllerBusSpeed = 400000;
+oledI2C.peripheral.$assign = "I2C0";
+oledI2C.peripheral.sdaPin.$assign = "PA28";
+oledI2C.peripheral.sclPin.$assign = "PA31";

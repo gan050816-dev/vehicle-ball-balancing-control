@@ -1,0 +1,27 @@
+# CCS build outputs
+Debug/
+Release/
+*.o
+*.d
+*.out
+*.map
+*.elf
+*.hex
+
+# Python caches and local credentials
+__pycache__/
+*.py[cod]
+.env
+.env.*
+config.local.py
+
+# Editor and OS files
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# Temporary and backup files
+*.tmp
+*.bak
+~$*

@@ -1,0 +1,6 @@
+# CCS自动生成的编译数据库位于Debug目录。
+CompileFlags:
+   CompilationDatabase: Debug/.clangd
+
+Diagnostics:
+   Suppress: '*'
